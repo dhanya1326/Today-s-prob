@@ -1,0 +1,67 @@
+import time
+
+# Build Bad Character Table
+def bad_char_table(pattern):
+    table = {}
+
+    for i in range(len(pattern)):
+        table[pattern[i]] = i
+
+    return table
+
+
+# Boyer-Moore Search
+def boyer_moore(text, pattern):
+
+    bad_char = bad_char_table(pattern)
+
+    n = len(text)
+    m = len(pattern)
+
+    positions = []
+
+    shift = 0
+
+    start_time = time.perf_counter_ns()
+
+    while shift <= n - m:
+
+        j = m - 1
+
+        # Compare from right to left
+        while j >= 0 and pattern[j] == text[shift + j]:
+            j -= 1
+
+        # Pattern found
+        if j < 0:
+            positions.append(shift)
+
+            shift += (m - bad_char.get(text[shift + m], -1)
+                      if shift + m < n else 1)
+
+        else:
+            shift += max(1, j - bad_char.get(text[shift + j], -1))
+
+    end_time = time.perf_counter_ns()
+
+    execution_time = end_time - start_time
+
+    return positions, execution_time
+
+
+# Main Program
+text = input("Enter document text:\n")
+pattern = input("Enter pattern to search:\n")
+
+positions, exec_time = boyer_moore(text, pattern)
+
+print("\n--- Search Result ---")
+
+if positions:
+    print("Pattern Found!")
+    print("Positions:", positions)
+    print("Occurrences:", len(positions))
+else:
+    print("Pattern Not Found!")
+
+print("Execution Time:", exec_time, "nanoseconds")
