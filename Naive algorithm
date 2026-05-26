@@ -1,0 +1,70 @@
+import time
+
+
+# Function for Simple Pattern Searching
+def search_pattern(text_data, pattern_data, text_len, pattern_len):
+
+    positions = []
+    comparisons = 0
+
+    # Loop through text
+    for i in range(text_len - pattern_len + 1):
+
+        comparisons += 1
+
+        # Compare substring with pattern
+        if text_data[i:i + pattern_len] == pattern_data:
+            positions.append(i)
+
+    return positions, comparisons
+
+
+# ---------------- MAIN PROGRAM ----------------
+
+print("\n===================================")
+print("     SIMPLE PATTERN SEARCH")
+print("===================================\n")
+
+# User Input
+txt = input("Enter a text:\n\n")
+
+pat = input("\nEnter a pattern:\n\n")
+
+# Start Time
+start_time = time.perf_counter_ns()
+
+# Function Call
+result, total_comparisons = search_pattern(
+    txt,
+    pat,
+    len(txt),
+    len(pat)
+)
+
+# End Time
+end_time = time.perf_counter_ns()
+
+execution_time = end_time - start_time
+
+# ---------------- OUTPUT ----------------
+
+print("\n===================================")
+print("          SEARCH RESULT")
+print("===================================\n")
+
+if result:
+
+    print("STATUS              : Pattern Found")
+    print("POSITIONS           : ", result)
+    print("TOTAL OCCURRENCES   : ", len(result))
+
+else:
+
+    print("STATUS              : Pattern Not Found")
+
+print("TOTAL COMPARISONS   : ", total_comparisons)
+print("EXECUTION TIME      : ", execution_time, "nanoseconds")
+
+print("\n===================================")
+print("      PROGRAM COMPLETED")
+print("===================================")
