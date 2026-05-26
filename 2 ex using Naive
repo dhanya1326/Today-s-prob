@@ -1,0 +1,91 @@
+import time
+
+
+# ---------------------------------------------------
+# NAIVE PATTERN SEARCHING FUNCTION
+# ---------------------------------------------------
+
+def naive_search(text_data, pattern_data, text_length, pattern_length):
+
+    found_positions = []
+    comparisons = 0
+
+    # Traverse the text
+    for i in range(text_length - pattern_length + 1):
+
+        comparisons += 1
+
+        # Compare substring with pattern
+        if text_data[i:i + pattern_length] == pattern_data:
+            found_positions.append(i)
+
+    return found_positions, comparisons
+
+
+# ---------------------------------------------------
+# READ DATA FROM FILES
+# ---------------------------------------------------
+
+file_text = open("input1.txt", "r")
+file_pattern = open("pattern.txt", "r")
+
+txt = file_text.read().strip()
+pat = file_pattern.read().strip()
+
+file_text.close()
+file_pattern.close()
+
+
+# ---------------------------------------------------
+# START EXECUTION TIMER
+# ---------------------------------------------------
+
+start_time = time.perf_counter_ns()
+
+positions, total_comparisons = naive_search(
+    txt,
+    pat,
+    len(txt),
+    len(pat)
+)
+
+end_time = time.perf_counter_ns()
+
+execution_time = end_time - start_time
+
+
+# ---------------------------------------------------
+# DISPLAY OUTPUT
+# ---------------------------------------------------
+
+print("\n======================================")
+print("      NAIVE SEARCH ANALYSIS")
+print("======================================\n")
+
+print("DOCUMENT LENGTH      :", len(txt))
+print("PATTERN LENGTH       :", len(pat))
+
+print("\nPATTERN TO SEARCH    :", pat)
+
+print("\n--------------------------------------")
+
+if positions:
+
+    print("SEARCH STATUS        : FOUND")
+    print("MATCH POSITIONS      :", positions)
+    print("TOTAL OCCURRENCES    :", len(positions))
+
+else:
+
+    print("SEARCH STATUS        : NOT FOUND")
+
+print("--------------------------------------")
+
+print("TOTAL COMPARISONS    :", total_comparisons)
+
+print("EXECUTION TIME       :", execution_time,
+      "nanoseconds")
+
+print("\n======================================")
+print("      SEARCH COMPLETED")
+print("======================================")
