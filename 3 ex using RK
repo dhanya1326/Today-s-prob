@@ -1,0 +1,142 @@
+import time
+
+
+# --------------------------------------------------
+# RABIN-KARP PATTERN SEARCHING ALGORITHM
+# --------------------------------------------------
+
+def rabin_karp_search(text_data, pattern_data,
+                       alphabet_size=256, prime_number=101):
+
+    text_length = len(text_data)
+    pattern_length = len(pattern_data)
+
+    pattern_hash = 0
+    text_hash = 0
+
+    hash_multiplier = pow(
+        alphabet_size,
+        pattern_length - 1
+    ) % prime_number
+
+    found_positions = []
+
+    total_hash_checks = 0
+    total_character_checks = 0
+
+    # ----------------------------------------------
+    # CREATE INITIAL HASH VALUES
+    # ----------------------------------------------
+
+    for i in range(pattern_length):
+
+        pattern_hash = (
+            alphabet_size * pattern_hash +
+            ord(pattern_data[i])
+        ) % prime_number
+
+        text_hash = (
+            alphabet_size * text_hash +
+            ord(text_data[i])
+        ) % prime_number
+
+    # ----------------------------------------------
+    # SLIDE PATTERN OVER TEXT
+    # ----------------------------------------------
+
+    for shift in range(text_length - pattern_length + 1):
+
+        total_hash_checks += 1
+
+        # Hash values match
+        if pattern_hash == text_hash:
+
+            total_character_checks += 1
+
+            # Verify characters
+            if text_data[shift:shift + pattern_length] == pattern_data:
+
+                found_positions.append(shift)
+
+        # Calculate next hash value
+        if shift < text_length - pattern_length:
+
+            text_hash = (
+                alphabet_size *
+                (text_hash -
+                 ord(text_data[shift]) * hash_multiplier)
+                +
+                ord(text_data[shift + pattern_length])
+            ) % prime_number
+
+            if text_hash < 0:
+                text_hash += prime_number
+
+    return (found_positions,
+            total_hash_checks,
+            total_character_checks)
+
+
+# --------------------------------------------------
+# MAIN PROGRAM
+# --------------------------------------------------
+
+print("\n==========================================")
+print("      RABIN-KARP SEARCH SYSTEM")
+print("==========================================\n")
+
+document = input("Enter document text:\n\n")
+
+pattern = input("\nEnter pattern to search:\n\n")
+
+# Start Timer
+start_time = time.perf_counter_ns()
+
+results, hash_checks, character_checks = rabin_karp_search(
+    document,
+    pattern
+)
+
+# End Timer
+end_time = time.perf_counter_ns()
+
+execution_time = end_time - start_time
+
+
+# --------------------------------------------------
+# DISPLAY RESULTS
+# --------------------------------------------------
+
+print("\n==========================================")
+print("            SEARCH REPORT")
+print("==========================================\n")
+
+print("DOCUMENT LENGTH       :", len(document))
+print("PATTERN LENGTH        :", len(pattern))
+
+print("\nPATTERN SEARCHED      :", pattern)
+
+print("\n------------------------------------------")
+
+if results:
+
+    print("SEARCH STATUS         : FOUND")
+    print("MATCH POSITIONS       :", results)
+    print("TOTAL OCCURRENCES     :", len(results))
+
+else:
+
+    print("SEARCH STATUS         : NOT FOUND")
+
+print("------------------------------------------")
+
+print("TOTAL HASH CHECKS     :", hash_checks)
+print("CHARACTER VERIFICATIONS:", character_checks)
+
+print("EXECUTION TIME        :",
+      execution_time,
+      "nanoseconds")
+
+print("\n==========================================")
+print("         SEARCH COMPLETED")
+print("==========================================")
