@@ -1,0 +1,495 @@
+"""
+Academic Plagiarism Detection System
+=====================================
+Algorithms: Rabin-Karp | KMP | Boyer-Moore
+"""
+
+import os
+import re
+import time
+import random
+import json
+from collections import defaultdict, Counter
+from itertools import combinations
+from dataclasses import dataclass
+from typing import Optional
+
+
+# ─────────────────────────────────────────────
+# DATA STRUCTURES
+# ─────────────────────────────────────────────
+
+@dataclass
+class MatchResult:
+    doc1_id: str
+    doc2_id: str
+    similarity_percent: float
+    matched_positions: list   # [(start1, end1, start2, end2, snippet)]
+    algorithm_used: str
+    time_taken_ms: float
+
+@dataclass
+class PlagiarismReport:
+    total_documents: int
+    pairs_checked: int
+    flagged_pairs: list
+    most_repeated_patterns: list
+    algorithm_benchmark: dict
+    fastest_algorithm: str
+    threshold_used: float
+
+
+# ─────────────────────────────────────────────
+# TEXT PREPROCESSING
+# ─────────────────────────────────────────────
+
+def preprocess(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def tokenize(text: str, n: int = 8) -> list:
+    words = text.split()
+    return [' '.join(words[i:i+n]) for i in range(len(words) - n + 1)]
+
+
+# ─────────────────────────────────────────────
+# ALGORITHM 1 – RABIN-KARP
+# ─────────────────────────────────────────────
+
+def rabin_karp_search(text: str, pattern: str, base: int = 256, mod: int = 101) -> list:
+    n, m = len(text), len(pattern)
+    if m > n:
+        return []
+    h_pat = h_txt = 0
+    h = 1
+    positions = []
+
+    for _ in range(m - 1):
+        h = (h * base) % mod
+    for i in range(m):
+        h_pat = (base * h_pat + ord(pattern[i])) % mod
+        h_txt = (base * h_txt + ord(text[i])) % mod
+
+    for i in range(n - m + 1):
+        if h_pat == h_txt:
+            if text[i:i+m] == pattern:
+                positions.append(i)
+        if i < n - m:
+            h_txt = (base * (h_txt - ord(text[i]) * h) + ord(text[i + m])) % mod
+            if h_txt < 0:
+                h_txt += mod
+    return positions
+
+
+# ─────────────────────────────────────────────
+# ALGORITHM 2 – KMP (Knuth-Morris-Pratt)
+# ─────────────────────────────────────────────
+
+def _build_lps(pattern: str) -> list:
+    lps = [0] * len(pattern)
+    length = 0
+    i = 1
+    while i < len(pattern):
+        if pattern[i] == pattern[length]:
+            length += 1
+            lps[i] = length
+            i += 1
+        else:
+            if length:
+                length = lps[length - 1]
+            else:
+                lps[i] = 0
+                i += 1
+    return lps
+
+def kmp_search(text: str, pattern: str) -> list:
+    n, m = len(text), len(pattern)
+    if m == 0:
+        return []
+    lps = _build_lps(pattern)
+    positions = []
+    i = j = 0
+    while i < n:
+        if pattern[j] == text[i]:
+            i += 1
+            j += 1
+        if j == m:
+            positions.append(i - j)
+            j = lps[j - 1]
+        elif i < n and pattern[j] != text[i]:
+            j = lps[j - 1] if j else 0
+            if not j:
+                i += 1
+    return positions
+
+
+# ─────────────────────────────────────────────
+# ALGORITHM 3 – BOYER-MOORE (Bad Character)
+# ─────────────────────────────────────────────
+
+def _bad_char_table(pattern: str) -> dict:
+    return {ch: i for i, ch in enumerate(pattern)}
+
+def boyer_moore_search(text: str, pattern: str) -> list:
+    n, m = len(text), len(pattern)
+    if m == 0 or m > n:
+        return []
+    bad_char = _bad_char_table(pattern)
+    positions = []
+    s = 0
+    while s <= n - m:
+        j = m - 1
+        while j >= 0 and pattern[j] == text[s + j]:
+            j -= 1
+        if j < 0:
+            positions.append(s)
+            s += (m - bad_char.get(text[s + m], -1)) if s + m < n else 1
+        else:
+            s += max(1, j - bad_char.get(text[s + j], -1))
+    return positions
+
+
+# ─────────────────────────────────────────────
+# SEARCH DISPATCHER
+# ─────────────────────────────────────────────
+
+ALGORITHMS = {
+    'rabin_karp':  rabin_karp_search,
+    'kmp':         kmp_search,
+    'boyer_moore': boyer_moore_search,
+}
+
+def search(text: str, pattern: str, algorithm: str) -> list:
+    return ALGORITHMS[algorithm](text, pattern)
+
+
+# ─────────────────────────────────────────────
+# DOCUMENT COMPARISON
+# ─────────────────────────────────────────────
+
+def compare_documents(doc1_id: str, text1: str,
+                       doc2_id: str, text2: str,
+                       algorithm: str,
+                       threshold: float = 20.0) -> Optional[MatchResult]:
+
+    t1 = preprocess(text1)
+    t2 = preprocess(text2)
+    ngrams = list(set(tokenize(t1, 8)))[:60]
+
+    t_start = time.perf_counter()
+    hits = 0
+    positions = []
+
+    for ng in ngrams:
+        found = search(t2, ng, algorithm)
+        if found:
+            hits += 1
+            p1 = t1.find(ng)
+            positions.append((p1, p1 + len(ng),
+                               found[0], found[0] + len(ng),
+                               ng[:80]))
+
+    elapsed_ms = (time.perf_counter() - t_start) * 1000
+    similarity = (hits / max(len(ngrams), 1)) * 100
+
+    if similarity >= threshold:
+        return MatchResult(
+            doc1_id=doc1_id,
+            doc2_id=doc2_id,
+            similarity_percent=round(similarity, 2),
+            matched_positions=positions,
+            algorithm_used=algorithm,
+            time_taken_ms=round(elapsed_ms, 3)
+        )
+    return None
+
+
+# ─────────────────────────────────────────────
+# REPEATED PATTERN FINDER
+# ─────────────────────────────────────────────
+
+def find_repeated_patterns(documents: dict, top_n: int = 20, ngram_size: int = 6) -> list:
+    pattern_docs  = defaultdict(set)
+    pattern_count = Counter()
+
+    for doc_id, text in documents.items():
+        proc = preprocess(text)
+        for ng in set(tokenize(proc, ngram_size)):
+            if len(ng) > 20:
+                pattern_docs[ng].add(doc_id)
+                pattern_count[ng] += 1
+
+    repeated = [(pat, cnt, list(pattern_docs[pat]))
+                for pat, cnt in pattern_count.most_common(top_n * 3)
+                if len(pattern_docs[pat]) >= 2]
+    repeated.sort(key=lambda x: len(x[2]), reverse=True)
+    return repeated[:top_n]
+
+
+# ─────────────────────────────────────────────
+# ALGORITHM BENCHMARK
+# ─────────────────────────────────────────────
+
+def benchmark_algorithms(sample_pairs: list, documents: dict) -> dict:
+    results = {a: [] for a in ALGORITHMS}
+    for d1, d2 in sample_pairs[:20]:
+        t1, t2 = documents[d1], documents[d2]
+        for algo in ALGORITHMS:
+            t_start = time.perf_counter()
+            compare_documents(d1, t1, d2, t2, algorithm=algo, threshold=0)
+            results[algo].append((time.perf_counter() - t_start) * 1000)
+    return {algo: round(sum(times) / len(times), 3)
+            for algo, times in results.items() if times}
+
+
+# ─────────────────────────────────────────────
+# MAIN PIPELINE
+# ─────────────────────────────────────────────
+
+def analyze_plagiarism(documents: dict,
+                        threshold: float = 25.0,
+                        verbose: bool = True) -> PlagiarismReport:
+
+    doc_ids     = list(documents.keys())
+    n           = len(doc_ids)
+    total_pairs = n * (n - 1) // 2
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print("  ACADEMIC PLAGIARISM DETECTION SYSTEM")
+        print(f"{'='*60}")
+        print(f"  Algorithms       : Rabin-Karp | KMP | Boyer-Moore")
+        print(f"  Documents loaded : {n}")
+        print(f"  Pairs to check   : {total_pairs}")
+        print(f"  Threshold        : {threshold}%")
+        print(f"{'='*60}\n")
+
+    # Step 1 – benchmark
+    all_pairs = list(combinations(doc_ids, 2))
+    random.shuffle(all_pairs)
+    if verbose:
+        print("  [1/4] Benchmarking Rabin-Karp, KMP, Boyer-Moore...")
+    benchmark = benchmark_algorithms(all_pairs, documents)
+    fastest   = min(benchmark, key=benchmark.get)
+
+    if verbose:
+        print("        Results (avg ms / pair):")
+        for alg, ms in sorted(benchmark.items(), key=lambda x: x[1]):
+            bar    = "█" * max(1, int(ms / 2))
+            marker = "  ◀ fastest" if alg == fastest else ""
+            print(f"          {alg:<15} {ms:>8.3f} ms  {bar}{marker}")
+        print(f"\n  [2/4] Running pairwise comparison with '{fastest}'...")
+
+    # Step 2 – compare all pairs using fastest algorithm
+    flagged  = []
+    checked  = 0
+    interval = max(1, total_pairs // 10)
+
+    for d1, d2 in combinations(doc_ids, 2):
+        result = compare_documents(d1, documents[d1],
+                                   d2, documents[d2],
+                                   algorithm=fastest,
+                                   threshold=threshold)
+        if result:
+            flagged.append(result)
+        checked += 1
+        if verbose and checked % interval == 0:
+            pct = checked / total_pairs * 100
+            print(f"        Progress: {checked}/{total_pairs} ({pct:.0f}%) "
+                  f"| Flagged: {len(flagged)}")
+
+    flagged.sort(key=lambda r: r.similarity_percent, reverse=True)
+
+    # Step 3 – repeated patterns
+    if verbose:
+        print(f"\n  [3/4] Identifying most repeated patterns...")
+    patterns = find_repeated_patterns(documents, top_n=20)
+    if verbose:
+        print(f"        Found {len(patterns)} repeated patterns")
+        print(f"\n  [4/4] Compiling report...\n")
+
+    return PlagiarismReport(
+        total_documents=n,
+        pairs_checked=checked,
+        flagged_pairs=flagged,
+        most_repeated_patterns=patterns,
+        algorithm_benchmark=benchmark,
+        fastest_algorithm=fastest,
+        threshold_used=threshold
+    )
+
+
+# ─────────────────────────────────────────────
+# REPORT PRINTER
+# ─────────────────────────────────────────────
+
+def print_report(report: PlagiarismReport, top_pairs: int = 10):
+    W = 65
+    print("\n" + "═" * W)
+    print("  PLAGIARISM ANALYSIS REPORT".center(W))
+    print("═" * W)
+    print(f"  Total documents  : {report.total_documents}")
+    print(f"  Pairs checked    : {report.pairs_checked}")
+    print(f"  Threshold        : {report.threshold_used}%")
+    print(f"  Flagged pairs    : {len(report.flagged_pairs)}")
+    print(f"  Fastest algo     : {report.fastest_algorithm}")
+    print("═" * W)
+
+    # Benchmark
+    print("\n  ALGORITHM BENCHMARK  (avg ms / pair)")
+    print("  " + "─" * 45)
+    for alg, ms in sorted(report.algorithm_benchmark.items(), key=lambda x: x[1]):
+        bar    = "█" * max(1, int(ms / 2))
+        marker = "  ◀ fastest" if alg == report.fastest_algorithm else ""
+        print(f"  {alg:<15} {ms:>8.3f} ms  {bar}{marker}")
+
+    # Flagged pairs
+    show = min(top_pairs, len(report.flagged_pairs))
+    print(f"\n  TOP {show} FLAGGED PAIRS  (sorted by similarity %)")
+    print("  " + "─" * 60)
+    if not report.flagged_pairs:
+        print("  No pairs exceeded the similarity threshold.")
+    for i, r in enumerate(report.flagged_pairs[:top_pairs], 1):
+        print(f"\n  [{i:02d}]  {r.doc1_id}  ↔  {r.doc2_id}")
+        print(f"        Similarity : {r.similarity_percent:.2f}%  |  "
+              f"Algorithm : {r.algorithm_used}  |  "
+              f"Time : {r.time_taken_ms:.2f} ms")
+        if r.matched_positions:
+            print(f"        Matched positions ({len(r.matched_positions)} snippets):")
+            for pos in r.matched_positions[:3]:
+                s1, e1, s2, e2, snip = pos
+                print(f"          Doc1[{s1}:{e1}] ↔ Doc2[{s2}:{e2}]"
+                      f"  →  \"{snip[:55]}...\"")
+
+    # Repeated patterns
+    print(f"\n  MOST REPEATED PATTERNS  (top 15)")
+    print("  " + "─" * 60)
+    if not report.most_repeated_patterns:
+        print("  No repeated patterns found.")
+    for i, (pat, cnt, doc_ids) in enumerate(report.most_repeated_patterns[:15], 1):
+        print(f"  [{i:02d}]  \"{pat[:55]}\"")
+        print(f"         Docs: {len(doc_ids)}  |  Occurrences: {cnt}  |  "
+              f"e.g. {', '.join(doc_ids[:3])}")
+
+    print("\n" + "═" * W)
+    rate = len(report.flagged_pairs) / max(report.pairs_checked, 1) * 100
+    print(f"  Plagiarism flag rate : {rate:.2f}% of all pairs")
+    print("═" * W + "\n")
+
+
+# ─────────────────────────────────────────────
+# FILE LOADER
+# ─────────────────────────────────────────────
+
+def load_documents_from_folder(folder_path: str) -> dict:
+    docs = {}
+    for fname in os.listdir(folder_path):
+        if fname.endswith('.txt'):
+            fpath = os.path.join(folder_path, fname)
+            with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                docs[fname] = f.read()
+    return docs
+
+
+# ─────────────────────────────────────────────
+# SYNTHETIC DATA GENERATOR  (demo only)
+# ─────────────────────────────────────────────
+
+_TECH_DEFS = [
+    "A binary search tree is a data structure in which each node has at most two children "
+    "referred to as the left child and the right child.",
+    "Dynamic programming is a method for solving complex problems by breaking them down "
+    "into simpler overlapping subproblems and storing their solutions.",
+    "The time complexity of quicksort is O(n log n) on average and O(n squared) in the "
+    "worst case when the pivot is always the smallest or largest element.",
+    "A hash table uses a hash function to compute an index into an array of buckets "
+    "from which the desired value can be found.",
+    "Dijkstra algorithm finds the shortest path between nodes in a graph by greedily "
+    "selecting the unvisited node with the smallest tentative distance.",
+    "Machine learning is a subset of artificial intelligence that provides systems the "
+    "ability to automatically learn and improve from experience without being explicitly programmed.",
+    "Object oriented programming encapsulates data and behaviour into objects and supports "
+    "inheritance polymorphism and abstraction as its core principles.",
+    "The TCP IP model standardises how data is transmitted across a network through four "
+    "abstraction layers namely link internet transport and application.",
+    "A neural network consists of layers of interconnected nodes that transform input data "
+    "through learned weight matrices to produce an output prediction.",
+    "Recursion is a programming technique where a function calls itself with a modified "
+    "argument until it reaches a base case that terminates the call chain.",
+]
+
+_FILLERS = ("algorithm data structure function variable loop condition iteration pointer "
+            "array list node graph tree stack queue heap memory cache register processor "
+            "network protocol packet byte bit flag compiler linker debugger runtime").split()
+
+def _rand_sent() -> str:
+    return ' '.join(random.choices(_FILLERS, k=random.randint(10, 20))).capitalize() + '.'
+
+def generate_documents(n: int = 30, copy_ratio: float = 0.40) -> dict:
+    docs = {}
+    n_copied = int(n * copy_ratio)
+    for i in range(1, n + 1):
+        paras = [_rand_sent() + ' ' + _rand_sent()
+                 for _ in range(random.randint(4, 8))]
+        if i <= n_copied:
+            for defn in random.sample(_TECH_DEFS, k=random.randint(1, 3)):
+                paras.insert(random.randint(0, len(paras)), defn)
+        docs[f"student_{i:03d}.txt"] = '\n\n'.join(paras)
+    return docs
+
+
+# ─────────────────────────────────────────────
+# ENTRY POINT
+# ─────────────────────────────────────────────
+
+if __name__ == '__main__':
+    import sys
+
+    NUM_DOCS  = int(sys.argv[1])   if len(sys.argv) > 1 else 30
+    THRESHOLD = float(sys.argv[2]) if len(sys.argv) > 2 else 15.0
+
+    # ── To use real documents, replace the line below: ──────────────
+    # documents = load_documents_from_folder('./assignments/')
+    # ────────────────────────────────────────────────────────────────
+    print(f"Generating {NUM_DOCS} synthetic student documents...")
+    documents = generate_documents(n=NUM_DOCS, copy_ratio=0.40)
+
+    report = analyze_plagiarism(documents=documents,
+                                 threshold=THRESHOLD,
+                                 verbose=True)
+    print_report(report, top_pairs=10)
+
+    # Export JSON
+    json_out = {
+        "summary": {
+            "total_documents":  report.total_documents,
+            "pairs_checked":    report.pairs_checked,
+            "flagged_pairs":    len(report.flagged_pairs),
+            "threshold_used":   report.threshold_used,
+            "fastest_algorithm": report.fastest_algorithm,
+        },
+        "algorithm_benchmark_ms": report.algorithm_benchmark,
+        "flagged_pairs": [
+            {
+                "doc1": r.doc1_id,
+                "doc2": r.doc2_id,
+                "similarity_percent": r.similarity_percent,
+                "algorithm": r.algorithm_used,
+                "time_ms": r.time_taken_ms,
+                "matched_positions": [
+                    {"doc1_start": p[0], "doc1_end": p[1],
+                     "doc2_start": p[2], "doc2_end": p[3],
+                     "snippet": p[4]}
+                    for p in r.matched_positions
+                ]
+            }
+            for r in report.flagged_pairs
+        ],
+        "repeated_patterns": [
+            {"pattern": pat, "frequency": cnt, "found_in_docs": ids}
+            for pat, cnt, ids in report.most_repeated_patterns
+        ]
+    }
+    
